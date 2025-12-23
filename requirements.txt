@@ -2,4 +2,4 @@ streamlit
 rembg
 pillow
 onnxruntime
-numpy
+numpy<2.0.0
