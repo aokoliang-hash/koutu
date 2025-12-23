@@ -1,73 +1,119 @@
 import streamlit as st
-from rembg import remove, new_session  # <--- 1. 这里多引入了 new_session
+from rembg import remove, new_session
 from PIL import Image
-from io import BytesIO
+import io
+import numpy as np
 
-st.set_page_config(layout="wide", page_title="kolang 制作的 AI 智能抠图工具")
+# --- 页面配置 ---
+st.set_page_config(layout="wide", page_title="AI 建筑/通用抠图专业版")
 
-st.write("## 🎨 kolang 的 AI 智能抠图工具")
-st.write(":dog: 上传一张图片，自动移除背景。如果效果不佳，请尝试切换模型。")
+st.markdown("""
+<style>
+    .stApp {max-width: 100%;}
+    img {max-width: 100%;}
+</style>
+""", unsafe_allow_html=True)
 
-# --- UI 元素 ---
-st.sidebar.write("## 上传与设置")
+st.write("## 🏙️ kolang 的 AI 智能抠图工具 (专业版)")
+st.write("针对建筑、复杂背景优化，支持手动修复“幽灵”半透明问题。")
 
-# 模型选择
-model_name = st.sidebar.selectbox(
-    "选择抠图模型",
-    ("u2net", "isnet-general-use", "u2net_human_seg", "u2netp"),
-    index=0 # 默认选中第一个
+# --- 侧边栏设置 ---
+st.sidebar.header("🛠️ 设置面板")
+
+# 1. 模型选择
+st.sidebar.subheader("1. 模型选择")
+model_type = st.sidebar.selectbox(
+    "推荐尝试不同模型",
+    ("isnet-general-use", "isnet-anime", "u2net"),
+    index=0,
+    help="isnet-general-use: 细节最好；isnet-anime: 对插画/效果图/高对比度图片效果奇佳。"
 )
 
-st.sidebar.write("---")
-my_upload = st.sidebar.file_uploader("请上传图片", type=["png", "jpg", "jpeg"])
+# 2. 高级处理策略
+st.sidebar.subheader("2. 修复策略 (关键)")
 
-# --- 处理逻辑 ---
+# 策略 A: Alpha Matting
+use_alpha_matting = st.sidebar.checkbox("启用 Alpha Matting (边缘精修)", value=False, help="启用后边缘更柔和，但处理速度变慢。")
+if use_alpha_matting:
+    fg_threshold = st.sidebar.slider("前景阈值 (Foreground)", 0, 255, 240)
+    bg_threshold = st.sidebar.slider("背景阈值 (Background)", 0, 255, 10)
+    erode_size = st.sidebar.slider("腐蚀大小 (Erode)", 0, 50, 10)
+else:
+    fg_threshold = 240
+    bg_threshold = 10
+    erode_size = 10
+
+st.sidebar.markdown("---")
+
+# 策略 B: 强制不透明 (针对你的问题)
+st.sidebar.subheader("3. 后期修正")
+force_solid = st.sidebar.checkbox("🧱 强制不透明 (修复半透明建筑)", value=False, help="勾选此项！如果旁边的楼变半透明了，这个功能会强制把它们变回实心。")
+solid_threshold = 0
+if force_solid:
+    solid_threshold = st.sidebar.slider("不透明度识别灵敏度", 1, 200, 30, help="数值越小，识别越灵敏。只要有一点点影子就保留。")
+
+
+# --- 主逻辑 ---
+my_upload = st.sidebar.file_uploader("上传图片 (JPG/PNG)", type=["png", "jpg", "jpeg"])
+
 if my_upload is not None:
+    # 加载图片
     image = Image.open(my_upload)
     
     col1, col2 = st.columns(2)
     with col1:
-        st.header("原图")
+        st.subheader("原始图片")
         st.image(image)
 
-    with st.spinner(f'正在使用 {model_name} 模型抠图中...'):
-        # --- 2. 修正后的核心代码 ---
+    with st.spinner('AI 正在计算像素... (第一次加载模型需等待)'):
         try:
-            # 第一步：创建一个 session (会话)，指定要用的模型
-            session = new_session(model_name)
+            # 1. 创建会话
+            session = new_session(model_type)
             
-            # 第二步：将 session 传给 remove 函数
-            fixed = remove(image, session=session)
-            
-            # --- 图片处理完毕 ---
-            
-            buf = BytesIO()
-            fixed.save(buf, format="PNG")
-            byte_im = buf.getvalue()
+            # 2. 执行抠图
+            # 注意：这里把 alpha_matting 的参数传进去了
+            fixed = remove(
+                image, 
+                session=session,
+                alpha_matting=use_alpha_matting,
+                alpha_matting_foreground_threshold=fg_threshold,
+                alpha_matting_background_threshold=bg_threshold,
+                alpha_matting_erode_size=erode_size
+            )
 
+            # 3. [关键步骤] 强制不透明处理
+            if force_solid:
+                # 把图片转成 numpy 数组方便操作
+                img_array = np.array(fixed)
+                
+                # 获取 Alpha 通道 (第4个通道)
+                # 逻辑：如果 Alpha 值大于设定的阈值(比如30)，就直接改成 255 (完全不透明)
+                alpha_channel = img_array[:, :, 3]
+                mask = alpha_channel > solid_threshold
+                img_array[:, :, 3][mask] = 255
+                
+                # 转回图片对象
+                fixed = Image.fromarray(img_array)
+
+            # 4. 展示结果
             with col2:
-                st.header("抠图结果")
+                st.subheader("抠图结果")
                 st.image(fixed)
+                
+                # 转换下载格式
+                buf = io.BytesIO()
+                fixed.save(buf, format="PNG")
+                byte_im = buf.getvalue()
+                
                 st.download_button(
-                    label="下载透明背景图片",
+                    label="📥 下载结果",
                     data=byte_im,
-                    file_name=f"removed_bg_{model_name}.png",
+                    file_name=f"koutu_{model_type}.png",
                     mime="image/png"
                 )
-        except Exception as e:
-            st.error(f"发生错误: {e}")
-            st.warning("提示：如果是第一次使用某个模型，系统需要下载模型文件，可能会超时或失败。请刷新页面重试。")
-            
-else:
-    st.info("👈 请在左侧上传图片开始使用")
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("模型说明:")
-st.sidebar.info(
-    """
-    - **u2net**: 默认模型，均衡。
-    - **isnet-general-use**: 🔥 推荐！细节处理最好（适合建筑/复杂背景）。
-    - **u2net_human_seg**: 专门用于人像。
-    - **u2netp**: 轻量版，速度快但精度略低。
-    """
-)
+        except Exception as e:
+            st.error(f"出错啦: {e}")
+
+else:
+    st.info("👈 请在左侧上传图片。针对你的建筑图，建议勾选【强制不透明】功能。")
