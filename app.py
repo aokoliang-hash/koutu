@@ -3,33 +3,34 @@ from rembg import remove
 from PIL import Image
 from io import BytesIO
 
-# 设置网页配置
-st.set_page_config(layout="wide", page_title="AI 在线抠图工具")
+st.set_page_config(layout="wide", page_title="AI 智能抠图工具")
 
-st.write("## 🎨 简易 AI 在线抠图工具")
-st.write(":dog: 上传一张图片，自动移除背景 :cat:")
+st.write("## 🎨 AI 智能抠图工具")
+st.write(":dog: 上传一张图片，自动移除背景。如果效果不佳，可以尝试更换抠图模型。")
 
-# 创建侧边栏上传组件
-st.sidebar.write("## 上传图片")
-my_upload = st.sidebar.file_uploader("请上传 JPG 或 PNG 图片", type=["png", "jpg", "jpeg"])
+# --- UI 元素 ---
+st.sidebar.write("## 上传与设置")
+# 1. 添加模型选择框
+model_name = st.sidebar.selectbox(
+    "选择抠图模型",
+    ("u2net", "isnet-general-use", "u2net_human_seg", "u2netp")
+)
+st.sidebar.write("---")
+my_upload = st.sidebar.file_uploader("请上传图片", type=["png", "jpg", "jpeg"])
 
-# 处理逻辑
+# --- 处理逻辑 ---
 if my_upload is not None:
-    # 1. 读取图片
     image = Image.open(my_upload)
     
-    # 2. 界面显示：创建两列
     col1, col2 = st.columns(2)
-    
     with col1:
         st.header("原图")
         st.image(image)
 
-    # 3. 执行抠图 (第一次运行会自动下载模型，约 100MB+，请耐心等待)
-    with st.spinner('正在施展魔法移除背景...'):
-        fixed = remove(image)
+    with st.spinner('AI 正在努力抠图中...'):
+        # 2. 使用用户选择的模型
+        fixed = remove(image, model_name=model_name)
         
-        # 将处理后的图片转换为字节流，以便下载
         buf = BytesIO()
         fixed.save(buf, format="PNG")
         byte_im = buf.getvalue()
@@ -37,8 +38,6 @@ if my_upload is not None:
     with col2:
         st.header("抠图结果")
         st.image(fixed)
-        
-        # 4. 提供下载按钮
         st.download_button(
             label="下载透明背景图片",
             data=byte_im,
@@ -46,5 +45,15 @@ if my_upload is not None:
             mime="image/png"
         )
 else:
-    # 如果没上传，显示示例或提示
-    st.info("👈 请在左侧侧边栏上传图片开始使用")
+    st.info("👈 请在左侧上传图片开始使用")
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("模型说明:")
+st.sidebar.info(
+    """
+    - **u2net**: 默认通用模型，适合大多数情况。
+    - **isnet-general-use**: 高精度通用模型，细节保留更好（推荐）。
+    - **u2net_human_seg**: 专门用于人像分割。
+    - **u2netp**: 一个轻量级的通用模型。
+    """
+)
