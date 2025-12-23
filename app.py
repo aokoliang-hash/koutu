@@ -5,7 +5,7 @@ from io import BytesIO
 
 st.set_page_config(layout="wide", page_title="kolang 制作的 AI 智能抠图工具")
 
-st.write("## 🎨 AI 智能抠图工具")
+st.write("## 🎨 kolang 的 AI 智能抠图工具")
 st.write(":dog: 上传一张图片，自动移除背景。如果效果不佳，请尝试切换模型。")
 
 # --- UI 元素 ---
